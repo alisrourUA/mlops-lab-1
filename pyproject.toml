@@ -7,7 +7,9 @@ authors = [
     { name = "Ali Srour", email = "202210481@ua.edu.lb" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pillow>=12.3.0",
+]
 
 [project.scripts]
 mlops-lab-1 = "mlops_lab_1:main"
