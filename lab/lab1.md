@@ -74,5 +74,19 @@ This fetches the data from the configured remote (in our case, a local folder at
 (Note: DVC's cache is content-addressable — files with identical content are stored once and referenced by multiple paths. Our local remote ended up holding 16,021 unique content blobs that expand back into the full 16,643 tracked file paths, which is why `dvc status -c` reported everything as "in sync" even though the raw file count differed. An initial `dvc pull` attempt failed likely due to a transient issue but succeeded on retry.)
 
 ## Question 8
+After running:
+
+git checkout b988f50   (the commit before food11_processed/food11_processed_mini were added)
+dvc checkout
+
+The `data/` folder now contains **only `food11_raw`** — the `food11_processed` and `food11_processed_mini` folders are gone entirely (confirmed via `dir data`).
+
+This happens because `dvc checkout` reconstructs the workspace to exactly match what `data.dvc` records at the currently checked-out git commit. At `b988f50`, the tracked `data.dvc` hash only reflects the raw dataset — dvc doesn't know about the processed folders yet at that point in history, so it removes anything in `data/` that isn't part of the recorded snapshot. This demonstrates that git + dvc together give you full, synchronized versioning of both code and data: checking out an old commit rolls back the data to match, not just the code/pointer file.
 
 ## Notes / Adopted solutions
+Due to slow internet, pushing the Food-11 dataset (~1.1 GB, 16,643 files) to DagsHub was impractical. Per the lab's suggested workaround #1, and per instructor guidance, we used a **local dvc remote** instead of DagsHub:
+
+    dvc remote add --global local_storage C:\Users\ali\dvc-storage
+    dvc remote default local_storage
+
+This remote is a folder outside the git repository, on the same machine. All `dvc push`/`dvc pull`/`dvc checkout` operations in this lab used this local remote rather than DagsHub. DagsHub was still configured as an available remote (`origin`) but never used to store data.
