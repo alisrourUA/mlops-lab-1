@@ -8,12 +8,26 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "mlflow>=3.16.1",
     "pillow>=12.3.0",
+    "scikit-learn>=1.9.1",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
 ]
 
-[project.scripts]
-mlops-lab-1 = "mlops_lab_1:main"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "food11"
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
