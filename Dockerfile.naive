@@ -1,0 +1,94 @@
+# Naive single-stage build, for comparison only (Question 5).
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
+COPY src/ ./src/
+
+EXPOSE 8000
+
+ENTRYPOINT ["uvicorn", "src.food11.serve:app", "--host", "0.0.0.0", "--port", "8000"]
+
+### Question 5: What's the size difference between a naive single-stage image and your multi-stage one? Use `docker history <image>` to see which layers are the biggest.
+
+| Image                          | Disk usage | Content size (compressed) |
+|--------------------------------|------------|---------------------------|
+| `food11-api:naive` (1 stage)   | 4.29 GB    | 921 MB                    |
+| `food11-api:latest` (2 stages) | 2.39 GB    | 518 MB                    |
+
+The multi-stage image is **about 44% smaller**: 1.9 GB less on disk and
+403 MB less to download when pulling it from a registry.
+
+`docker history` shows where the difference comes from:
+
+| Layer                       | Multi-stage           | Naive                    |
+|-----------------------------|-----------------------|--------------------------|
+| Base `python:3.13-slim`     | ~133 MB               | ~133 MB                  |
+| `uv` binary                 | not in the image      | 45.1 MB                  |
+| Dependencies                | `.venv` copy: 1.74 GB | `uv sync` layer: 3.19 GB |
+| `pyproject.toml`, `uv.lock` | not in the image      | 537 kB                   |
+| `src/` (our code)           | 53.2 kB               | 53.2 kB                  |
+
+- The biggest layer in both images is the **dependencies** (PyTorch,
+  torchvision, MLflow and their dependencies). Our own code is only
+  53 kB.
+- In the naive image, the `uv sync` layer is ~1.45 GB larger than the
+  venv alone because it also contains **uv's download cache**
+  (`/root/.cache/uv`): every downloaded package is stored twice, once
+  in the cache and once installed in `.venv`. The `uv` tool itself
+  (45 MB) also stays in the image although it is never used at runtime.
+- In the multi-stage build, the runtime stage starts from a clean
+  `python:3.13-slim` and copies **only** `/app/.venv` from the builder,
+  so the cache and the build tool are left behind.
+
+Note: the image installs the **CPU-only** build of torch on Linux (set
+with platform markers in `pyproject.toml`, while Windows keeps the CUDA
+build for GPU training), pinned to the same version used for training
+(2.11.0). With the default CUDA build, the Linux image would also
+include ~3 GB of NVIDIA CUDA libraries that a CPU-only inference
+container never uses.
+
+## Add a .dockerignore
+
+### Question 6: What happens to build speed and image size if you forget the `.dockerignore`? Which of the excluded folders would actually break the build if they were sent to the Docker daemon?
+
+Before building, `docker build` packs the whole build context (here the
+repo folder `.`) and sends it to the Docker daemon. With the
+`.dockerignore`, the context sent was only **540 kB**.
+
+**Build speed:** without it, the daemon would also receive `data/`
+(the raw and processed Food-11 images), `.venv/` (the local Windows
+environment with the multi-GB CUDA build of torch), `mlruns/` (trained
+models), `mlflow.db` and `.git/`: several gigabytes copied on every
+build before any instruction even runs. Worse, any change in these
+folders (a new training run, a new commit) changes the context, which
+can invalidate cached `COPY` layers and cause unnecessary rebuilds.
+
+**Image size:** with *this* Dockerfile, the image size would not
+change, because it only copies specific paths (`pyproject.toml`,
+`uv.lock` and `src/`): files in the context only end up in the image
+if a `COPY` instruction includes them. But with a common
+`COPY . .` instruction, all those gigabytes (dataset, models, git
+history) would be baked into the image, which would also leak
+local data that should not be distributed.
+
+**What would actually break the build:** `.venv/`. It is a **Windows**
+virtual environment (`Scripts/python.exe`, `.pyd` binaries, CUDA torch
+for Windows) that cannot run on Linux. With `COPY . .`, it would be
+copied over (or on top of) the Linux `.venv` created by `uv sync`,
+leaving the container with a broken environment that fails at
+startup. `__pycache__/` folders compiled by a different interpreter
+are another source of stale, mismatched files. `data/`, `mlruns/` and
+`.git/` don't break the build; they make it slow and the image bloated.

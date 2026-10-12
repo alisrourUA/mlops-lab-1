@@ -1,0 +1,28 @@
+# Local virtual environment (Windows binaries; the image builds its own)
+.venv/
+
+# Data (tracked by dvc, not needed to serve the model)
+data/
+*.dvc
+.dvc/
+.dvcignore
+
+# Local mlflow tracking files (the model is fetched from the server at runtime)
+mlruns/
+mlflow.db
+
+# Version control
+.git/
+.gitignore
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Lab notes and editor settings
+lab/
+.vscode/
+
+# The Docker files themselves
+Dockerfile*
+.dockerignore
